@@ -1,0 +1,3 @@
+SQLite format 3@  .X
+��r�?tablepointspointsCREATE TABLE points (date INTEGER, userid TEXT, league TEXT, points INTEGER, reason TEXT)
+x�xI)!Ub���aflyingphantomgryffindorFirst place in a tournament in lobby;!Gbl�$[ADMIN]gryffindorPoints given by Pokem9n$(♥)
