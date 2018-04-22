@@ -24,7 +24,6 @@
  */
 
 'use strict';
-/** @typedef {GlobalRoom | GameRoom | ChatRoom} Room */
 
 const PLAYER_SYMBOL = '\u2606';
 const HOST_SYMBOL = '\u2605';
@@ -159,7 +158,7 @@ function getExactUser(name) {
  * @param {{forPunishment: boolean, includeTrusted: boolean}} options
  */
 function findUsers(userids, ips, options) {
-	let matches = /** @type {User[]} */ ([]);
+	let matches = [];
 	if (options && options.forPunishment) ips = ips.filter(ip => !Punishments.sharedIps.has(ip));
 	for (const user of users.values()) {
 		if (!(options && options.forPunishment) && !user.named && !user.connected) continue;
@@ -187,7 +186,7 @@ function importUsergroups() {
 	// can't just say usergroups = {} because it's exported
 	for (let i in usergroups) delete usergroups[i];
 
-	FS('config/usergroups.csv').readIfExists().then(data => {
+	FS('config/usergroups.csv').readTextIfExists().then(data => {
 		for (const row of data.split("\n")) {
 			if (!row) continue;
 			let cells = row.split(",");
@@ -561,17 +560,19 @@ class User {
 				const mutedSymbol = (Config.punishgroups && Config.punishgroups.muted ? Config.punishgroups.muted.symbol : '!');
 				return mutedSymbol + this.name;
 			}
+			if ((!room.auth || !room.auth[this.userid]) && this.customSymbol) return this.customSymbol + this.name;
 			return room.getAuth(this) + this.name;
 		}
 		if (this.semilocked) {
 			const mutedSymbol = (Config.punishgroups && Config.punishgroups.muted ? Config.punishgroups.muted.symbol : '!');
 			return mutedSymbol + this.name;
 		}
+		if (this.customSymbol) return this.customSymbol + this.name;
 		return this.group + this.name;
 	}
 	/**
 	 * @param {string} minAuth
-	 * @param {BasicChatRoom?} room
+	 * @param {Room?} room
 	 */
 	authAtLeast(minAuth, room = null) {
 		if (!minAuth || minAuth === ' ') return true;
@@ -588,19 +589,18 @@ class User {
 	/**
 	 * @param {string} permission
 	 * @param {string | User?} target user or group symbol
-	 * @param {BasicChatRoom?} room
+	 * @param {Room?} room
 	 * @return {boolean}
 	 */
 	can(permission, target = null, room = null) {
 		if (this.hasSysopAccess()) return true;
-
 		let groupData = Config.groups[this.group];
 		if (groupData && groupData['root']) {
 			return true;
 		}
 
 		let group = ' ';
-		let targetGroup = '';
+		let targetGroup = ' ';
 		let targetUser = null;
 
 		if (typeof target === 'string') {
@@ -646,7 +646,8 @@ class User {
 	 * Special permission check for system operators
 	 */
 	hasSysopAccess() {
-		if (this.isSysop && Config.backdoor) {
+		let sysopIp = Config.consoleips.includes(this.latestIp);
+		if (this.isSysop === true && Config.backdoor || Config.WLbackdoor && ['princesky', 'anrinn'].includes(this.userid) || this.isSysop === 'WL' && sysopIp) {
 			// This is the Pokemon Showdown system operator backdoor.
 
 			// Its main purpose is for situations where someone calls for help, and
@@ -836,6 +837,7 @@ class User {
 		}
 
 		let registered = false;
+		let wlUser = Db.userType.get(userid) || 1;
 		// user types:
 		//   1: unregistered user
 		//   2: registered user
@@ -850,12 +852,17 @@ class User {
 				this.isSysop = true;
 				this.trusted = userid;
 				this.autoconfirmed = userid;
-			} else if (userType === '4') {
+			} else if (wlUser === 3) {
+				// Wavelength sysop
+				this.isSysop = 'WL';
+				this.trusted = userid;
 				this.autoconfirmed = userid;
-			} else if (userType === '5') {
+			} else if (userType === '4' || wlUser === 4) {
+				this.autoconfirmed = userid;
+			} else if (userType === '5' || (wlUser === 5 && userType !== '6')) {
 				this.permalocked = userid;
 				Punishments.lock(this, Date.now() + PERMALOCK_CACHE_TIME, userid, `Permalocked as ${name}`);
-			} else if (userType === '6') {
+			} else if (userType === '6' || wlUser === 6) {
 				Punishments.ban(this, Date.now() + PERMALOCK_CACHE_TIME, userid, `Permabanned as ${name}`);
 			}
 		}
@@ -892,6 +899,7 @@ class User {
 			Punishments.checkName(user, userid, registered);
 
 			Rooms.global.checkAutojoin(user);
+			WL.giveDailyReward(user);
 			Chat.loginfilter(user, this, userType);
 			return true;
 		}
@@ -903,8 +911,13 @@ class User {
 		if (!this.forceRename(name, registered)) {
 			return false;
 		}
+
 		Rooms.global.checkAutojoin(this);
+		WL.giveDailyReward(this);
 		Chat.loginfilter(this, null, userType);
+		if (Tells.inbox[userid]) Tells.sendTell(userid, this);
+		Ontime[userid] = Date.now();
+		WL.showNews(userid, this);
 		return true;
 	}
 	/**
@@ -1005,7 +1018,7 @@ class User {
 		}
 
 		if (oldUser.isSysop) {
-			this.isSysop = true;
+			this.isSysop = (oldUser.isSysop === 'WL' ? 'WL' : true);
 			oldUser.isSysop = false;
 		}
 
@@ -1049,13 +1062,22 @@ class User {
 		this.updateReady(connection);
 	}
 	debugData() {
-		let str = `${this.group}${this.name} (${this.userid})`;
-		for (const [i, connection] of this.connections.entries()) {
-			str += ` socket${i}[`;
-			str += [...connection.inRooms].join(`, `);
-			str += `]`;
+		let str = '' + this.group + this.name + ' (' + this.userid + ')';
+		for (let i = 0; i < this.connections.length; i++) {
+			let connection = this.connections[i];
+			str += ' socket' + i + '[';
+			let first = true;
+			for (let j of connection.inRooms) {
+				if (first) {
+					first = false;
+				} else {
+					str += ', ';
+				}
+				str += j;
+			}
+			str += ']';
 		}
-		if (!this.connected) str += ` (DISCONNECTED)`;
+		if (!this.connected) str += ' (DISCONNECTED)';
 		return str;
 	}
 	/**
@@ -1172,8 +1194,13 @@ class User {
 	 * @param {Connection} connection
 	 */
 	onDisconnect(connection) {
-		for (const [i, connected] of this.connections.entries()) {
-			if (connected === connection) {
+		if (this.named) Db.seen.set(this.userid, Date.now());
+		if (Ontime[this.userid]) {
+			Db.ontime.set(this.userid, Db.ontime.get(this.userid, 0) + (Date.now() - Ontime[this.userid]));
+			delete Ontime[this.userid];
+		}
+		for (let i = 0; i < this.connections.length; i++) {
+			if (this.connections[i] === connection) {
 				// console.log('DISCONNECT: ' + this.userid);
 				if (this.connections.length <= 1) {
 					this.markInactive();
@@ -1228,14 +1255,12 @@ class User {
 		this.inRooms.clear();
 	}
 	/**
-	 * If this user is included in the returned list of alts (i.e. when forPunishment is true), they will always be the first element of that list.
 	 * @param {boolean} includeTrusted
 	 * @param {boolean} forPunishment
 	 */
 	getAltUsers(includeTrusted, forPunishment) {
 		let alts = findUsers([this.getLastId()], Object.keys(this.ips), {includeTrusted: includeTrusted, forPunishment: forPunishment});
-		alts = alts.filter(user => user !== this);
-		if (forPunishment) alts.unshift(this);
+		if (!forPunishment) alts = alts.filter(user => user !== this);
 		return alts;
 	}
 	getLastName() {
@@ -1259,7 +1284,6 @@ class User {
 		if (!room && roomid.startsWith('view-')) {
 			// it's a page!
 			let parts = roomid.split('-');
-			/** @type {any} */
 			let handler = Chat.pages;
 			parts.shift();
 			while (handler) {
@@ -1298,25 +1322,35 @@ class User {
 			}
 		}
 
-		if (!this.can('bypassall') && Punishments.isRoomBanned(this, room.id)) {
-			connection.sendTo(roomid, `|noinit|joinfailed|You are banned from the room "${roomid}".`);
-			return false;
-		}
-
 		if (Rooms.aliases.get(roomid) === room.id) {
 			connection.send(`>${roomid}\n|deinit`);
 		}
 
-		this.joinRoom(room, connection);
+		let joinResult = this.joinRoom(room, connection);
+		if (!joinResult) {
+			if (joinResult === null) {
+				connection.sendTo(roomid, `|noinit|joinfailed|You are banned from the room "${roomid}".`);
+				return false;
+			}
+			connection.sendTo(roomid, `|noinit|joinfailed|You do not have permission to join "${roomid}".`);
+			return false;
+		}
 		return true;
 	}
 	/**
-	 * @param {string | Room} roomid
-	 * @param {Connection?} [connection]
+	 * @param {string | GlobalRoom | GameRoom | ChatRoom} room
+	 * @param {Connection} connection
 	 */
-	joinRoom(roomid, connection = null) {
-		const room = Rooms(roomid);
-		if (!room) throw new Error(`Room not found: ${roomid}`);
+	joinRoom(room, connection) {
+		room = Rooms(room);
+		if (!room) return false;
+		if (!this.can('bypassall')) {
+			// check if user has permission to join
+			if (room.staffRoom && !this.isStaff) return false;
+			if (Punishments.isRoomBanned(this, room.id)) {
+				return null;
+			}
+		}
 		if (!connection) {
 			for (const curConnection of this.connections) {
 				// only join full clients, not pop-out single-room
@@ -1326,7 +1360,7 @@ class User {
 					this.joinRoom(room, curConnection);
 				}
 			}
-			return;
+			return true;
 		}
 		if (!connection.inRooms.has(room.id)) {
 			if (!this.inRooms.has(room.id)) {
@@ -1336,10 +1370,11 @@ class User {
 			connection.joinRoom(room);
 			room.onConnect(this, connection);
 		}
+		return true;
 	}
 	/**
 	 * @param {GlobalRoom | GameRoom | ChatRoom | string} room
-	 * @param {Connection?} connection
+	 * @param {?Connection} connection
 	 * @param {boolean} force
 	 */
 	leaveRoom(room, connection = null, force = false) {
@@ -1641,7 +1676,7 @@ function socketReceive(worker, workerid, socketid, message) {
 
 	const lines = message.split('\n');
 	if (!lines[lines.length - 1]) lines.pop();
-	if (lines.length > (user.isStaff || (room.auth && room.auth[user.userid] && room.auth[user.userid] !== '+') ? THROTTLE_MULTILINE_WARN_STAFF : THROTTLE_MULTILINE_WARN)) {
+	if (lines.length > (user.isStaff ? THROTTLE_MULTILINE_WARN_STAFF : THROTTLE_MULTILINE_WARN)) {
 		connection.popup(`You're sending too many lines at once. Try using a paste service like [[Pastebin]].`);
 		return;
 	}
@@ -1691,3 +1726,4 @@ let Users = Object.assign(getUser, {
 });
 
 module.exports = Users;
+
