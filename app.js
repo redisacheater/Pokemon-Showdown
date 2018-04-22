@@ -37,14 +37,9 @@
  *   Used to abstract out network connections. sockets.js handles
  *   the actual server and connection set-up.
  *
- * @license MIT
+ * @license MIT license
  */
-
 'use strict';
-
-// NOTE: This file intentionally doesn't use too many modern JavaScript
-// features, so that it doesn't crash old versions of Node.js, so we
-// can successfully print the "We require Node.js 8+" message.
 
 // Check for version and dependencies
 try {
@@ -86,7 +81,7 @@ if (Config.watchconfig) {
 			if (global.Users) Users.cacheGroupData();
 			Monitor.notice('Reloaded config/config.js');
 		} catch (e) {
-			Monitor.adminlog("Error reloading config/config.js: " + e.stack);
+			Monitor.adminlog(`Error reloading config/config.js: ${e.stack}`);
 		}
 	});
 }
@@ -94,6 +89,23 @@ if (Config.watchconfig) {
 /*********************************************************
  * Set up most of our globals
  *********************************************************/
+
+global.WL = {};
+
+// Using mongodb to store data with nef
+// global.Db = require('nef')(require('nef-mongo')('yourMongoURI'));
+
+// Using monodb to store data with origin db
+// global.Sb = require('origindb')('yourMongoURI', { adapter: 'mongo'});
+
+global.Db = require('nef')(require('nef-fs')('config/db'));
+
+// Opitional databases for impulse
+global.Sb = require('origindb')('config/sb');
+
+global.sqlite3 = require('sqlite3');
+
+global.Monitor = require('./monitor');
 
 global.Dex = require('./sim/dex');
 global.toId = Dex.getId;
@@ -107,13 +119,19 @@ global.Users = require('./users');
 global.Punishments = require('./punishments');
 
 global.Chat = require('./chat');
-
 global.Rooms = require('./rooms');
 
+global.Tells = require('./tells.js');
+
+delete process.send; // in case we're a child process
 global.Verifier = require('./verifier');
 Verifier.PM.spawn();
 
+global.WL = require('./WL.js').WL;
+
 global.Tournaments = require('./tournaments');
+
+global.Ontime = {};
 
 global.Dnsbl = require('./dnsbl');
 Dnsbl.loadDatacenters();
@@ -129,12 +147,7 @@ if (Config.crashguard) {
 		}
 	});
 	process.on('unhandledRejection', err => {
-		let crashType = require('./lib/crashlogger')(err, 'A main process Promise');
-		if (crashType === 'lockdown') {
-			Rooms.global.startLockdown(err);
-		} else {
-			Rooms.global.reportCrash(err);
-		}
+		throw err;
 	});
 }
 
@@ -165,7 +178,12 @@ global.TeamValidatorAsync = require('./team-validator-async');
 TeamValidatorAsync.PM.spawn();
 
 /*********************************************************
+ * Start up the githubhook server
+ ********************************************************/
+require('./github');
+/*********************************************************
  * Start up the REPL server
  *********************************************************/
 
 require('./lib/repl').start('app', cmd => eval(cmd));
+
