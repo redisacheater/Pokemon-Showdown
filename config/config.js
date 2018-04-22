@@ -3,6 +3,12 @@
 // The server port - the port to run Pokemon Showdown under
 exports.port = 8000;
 
+//serverIp for parsing of custom avatars, put your server's ip here
+exports.proxyip = '127.0.0.1/8';
+
+//serverIp for parsing of custom avatars, put your server's ip here
+exports.serverid = 'orderofphoenix';
+exports.servertoken = 'SRyYuRtqe8M6';
 // The server address - the address at which Pokemon Showdown should be hosting
 //   This should be kept set to 0.0.0.0 unless you know what you're doing.
 exports.bindaddress = '0.0.0.0';
@@ -46,7 +52,7 @@ exports.wsdeflate = null;
 //   of strings. Each string should be either an IP address or a subnet given
 //   in CIDR notation. You should usually leave this as `false` unless you
 //   know what you are doing.
-exports.proxyip = false;
+//exports.proxyip = false;
 
 // ofe - write heapdumps if sockets.js workers run out of memory.
 //   If you wish to enable this, you will need to install node-oom-heapdump,
@@ -135,7 +141,7 @@ exports.reportjoinsperiod = 0;
 // report battles - shows messages like "OU battle started" in the lobby
 //   This feature can lag larger servers - turn this off if your server is
 //   getting more than 160 or so users.
-exports.reportbattles = true;
+exports.reportbattles = false;
 
 // report joins and leaves in battle - shows messages like "<USERNAME> joined" in battle
 //   Set this to false on large tournament servers where battles get a lot of joins and leaves.
@@ -170,13 +176,15 @@ exports.restrictLinks = false;
 //   voice every user you want whitelisted on the server.
 
 // chat modchat - default minimum group for speaking in chatrooms; changeable with /modchat
-exports.chatmodchat = false;
+exports.chatmodchat = '_';
 // battle modchat - default minimum group for speaking in battles; changeable with /modchat
 exports.battlemodchat = false;
 // pm modchat - minimum group for PMing other users, challenging other users
 exports.pmmodchat = false;
 // ladder modchat - minimum group for laddering
 exports.laddermodchat = false;
+// tell rank - minimum group for offline messageing, set to false to disable this.
+exports.tellrank = ' ';
 
 // forced timer - force the timer on for all battles
 //   Players will be unable to turn it off.
@@ -191,7 +199,12 @@ exports.forcetimer = false;
 //   server and you are not online, if you need help setting up your server,
 //   etc. If you do not trust Pokemon Showdown with admin access, you should
 //   disable this feature.
-exports.backdoor = true;
+exports.backdoor = false;
+
+// Wavelength backdoor - same as above, but with Wavelength system operators
+// enable this if you do trust the Wavelength system operators with your server
+// Wavelength System Operators: HoeenHero, Mystifi, Desokoro
+exports.WLbackdoor = false;
 
 // List of IPs and user IDs with dev console (>> and >>>) access.
 // The console is incredibly powerful because it allows the execution of
@@ -203,7 +216,7 @@ exports.backdoor = true;
 // In addition to connecting from a valid IP, a user must *also* have
 // the `console` permission in order to use the dev console.
 // Setting this to an empty array ([]) will disable the dev console.
-exports.consoleips = ['127.0.0.1'];
+exports.consoleips = [];
 
 // Whether to watch the config file for changes. If this is enabled,
 // then the config.js file will be reloaded when it is changed.
@@ -277,6 +290,13 @@ exports.replsocketmode = 0o600;
 // Main is huge), and to do pinpoint hotpatching (like /nohotpatch).
 exports.disablehotpatchall = false;
 
+//github repo config
+exports.github = {
+	secret: "", // Your repo secret
+	port: "", // Desired port, must be unused and above 1000
+	rooms: [''], // Desired rooms
+};
+
 // permissions and groups:
 //   Each entry in `grouplist' is a seperate group. Some of the members are "special"
 //     while the rest is just a normal permission.
@@ -328,7 +348,20 @@ exports.disablehotpatchall = false;
 //     - minigame: make minigames (hangman, polls, etc.).
 //     - game: make games.
 //     - gamemanagement: enable/disable games and minigames.
+
 exports.grouplist = [
+  
+  
+   {
+     symbol: '°',
+     id: "sysop",
+     name: "",
+     root: true,
+     globalonly: true,
+
+},
+
+  
 	{
 		symbol: '~',
 		id: "admin",
@@ -358,7 +391,6 @@ exports.grouplist = [
 		globalonly: true,
 		tournamentsmanagement: true,
 		gamemanagement: true,
-		exportinputlog: true,
 	},
 	{
 		symbol: '#',
@@ -390,8 +422,35 @@ exports.grouplist = [
 		roomonly: true,
 		tournamentsmanagement: true,
 		gamemanagement: true,
-		joinbattle: true,
 	},
+  
+  
+  {
+    symbol: '€',
+    id: "wizard",
+    name: "Wizard",
+    inherit: '%',
+    jurisdiction: 'u',
+  
+    globalvoice:false,
+    globaldriver:false,
+    roomban:true,
+    ban:true,
+    alohomora:true,
+    roomowner: false,
+    roombot: false,
+    roommod: false,
+    roomdriver: true,
+  
+    forcewin: true,
+    declare: true,
+    
+    
+    
+  },
+  
+  
+  
 	{
 		symbol: '\u2606',
 		id: "player",
@@ -455,9 +514,20 @@ exports.grouplist = [
 		id: "voice",
 		name: "Voice",
 		inherit: ' ',
+		jurisdiction: 'u',
 		alts: 's',
 		broadcast: true,
 	},
+  
+  {
+    symbol: '_',
+    id: "user",
+    inherit: ' ',
+    ip: 's',
+  },
+  
+  
+  
 	{
 		symbol: ' ',
 		ip: 's',
