@@ -10,7 +10,6 @@
 
 'use strict';
 
-const MAX_PROCESSES = 1;
 const RESULTS_MAX_LENGTH = 10;
 
 function escapeHTML(str) {
